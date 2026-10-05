@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0e141b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>아이마우스</title>
+  <link rel="stylesheet" href="style.css?v=wg10">
+</head>
+<body>
+  <!-- Ambient edge light (canvas) — builds along the up/down edge while dwelling; brighter flash on count (wg9). -->
+  <canvas id="ambient-glow" class="ambient-glow" aria-hidden="true"></canvas>
+
+  <!-- Count zones (shape set by app.js): top ~22%, bottom ~30% (wg8/wg9); empty center. Rails hidden (wg9). -->
+  <div class="zone zone-n" data-dir="up" aria-hidden="true"></div>
+  <div class="zone zone-s" data-dir="down" aria-hidden="true"></div>
+  <div class="zone zone-w" data-dir="left" aria-hidden="true"></div>
+  <div class="zone zone-e" data-dir="right" aria-hidden="true"></div>
+  <div class="rail rail-n" data-dir="up" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="위"><span class="rail-fill"></span></div>
+  <div class="rail rail-s" data-dir="down" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="아래"><span class="rail-fill"></span></div>
+  <div class="rail rail-w" data-dir="left" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="왼쪽"><span class="rail-fill"></span></div>
+  <div class="rail rail-e" data-dir="right" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="오른쪽"><span class="rail-fill"></span></div>
+
+  <div id="gaze-cursor" class="gaze-cursor" hidden aria-hidden="true"></div>
+  <p id="gaze-cursor-label" class="gaze-cursor-label" hidden>실험용 시선 커서 · WebGazer 추정 · 검증된 Eye Tracking API 아님</p>
+
+  <header class="top">
+    <div class="title-row">
+      <div>
+        <h1>아이마우스</h1>
+        <p class="sub">점마다 한 번 탭해 맞춘 뒤, 위·아래 가장자리 구역을 약 1.5초 보면 그 방향을 한 번 셉니다(왼쪽·오른쪽은 지금 꺼져 있음). 가운데는 세지 않습니다. <strong class="sim-tag">앱 안 숏츠 시뮬레이션</strong> · 다른 앱 위에 뜨는 오버레이가 아닙니다.</p>
+      </div>
+      <video id="cam" playsinline muted autoplay disablepictureinpicture></video>
+    </div>
+    <p id="status" class="status" role="status" aria-live="polite">앞 카메라를 켜 주세요</p>
+    <p id="calib-info" class="calib-info" hidden></p>
+    <div class="count-row">
+      <div class="counts" aria-label="방향 횟수">
+        <p class="count" data-dir="up"><span class="count-name">위 · 다음</span><b id="n-up">0</b></p>
+        <p class="count" data-dir="down"><span class="count-name">아래 · 이전</span><b id="n-down">0</b></p>
+        <p class="count" data-dir="left"><span class="count-name">왼쪽 · 뒤로</span><b id="n-left">0</b></p>
+        <p class="count" data-dir="right"><span class="count-name">오른쪽 · 댓글</span><b id="n-right">0</b></p>
+      </div>
+      <button type="button" id="clear" class="clear">지우기</button>
+      <button type="button" id="recalib" class="clear recalib" disabled>다시 맞추기</button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <span class="edge-tag tag-n" data-dir="up">위 · 다음</span>
+    <span class="edge-tag tag-s" data-dir="down">아래 · 이전</span>
+    <span class="edge-tag tag-w" data-dir="left">왼쪽 · 뒤로</span>
+    <span class="edge-tag tag-e" data-dir="right">오른쪽 · 댓글</span>
+
+    <!-- In-app short-form feed demo (NOT overlay on YouTube/Instagram). -->
+    <div id="feed" class="feed" hidden>
+      <p class="feed-banner">앱 안 데모 · 숏츠/릴스처럼 보이는 <b>가짜 피드</b>입니다. YouTube·Instagram을 조작하지 않습니다.</p>
+      <div id="feed-viewport" class="feed-viewport" aria-label="숏폼 피드 데모">
+        <div id="feed-track" class="feed-track"></div>
+      </div>
+      <div id="comment-panel" class="comment-panel" hidden aria-label="댓글 패널">
+        <div class="comment-head">
+          <span>댓글 <b id="comment-count">12</b></span>
+          <button type="button" id="comment-close" class="comment-close" aria-label="댓글 닫기">닫기</button>
+        </div>
+        <ul id="comment-list" class="comment-list"></ul>
+        <p class="comment-hint">왼쪽 가장자리를 보면 댓글을 닫습니다 (뒤로가기)</p>
+      </div>
+      <p id="feed-toast" class="feed-toast" hidden role="status"></p>
+    </div>
+
+    <div class="mid">
+      <button type="button" id="calib-dot" class="calib-dot" hidden aria-label="맞춤 점"></button>
+      <p id="focus" class="focus-msg">점을 보고 탭하세요</p>
+      <div id="baseline-track" class="baseline-track" hidden>
+        <span id="baseline-fill"></span>
+      </div>
+      <p id="calib-step" class="calib-step" hidden>1/5 · 한 번 탭</p>
+    </div>
+  </main>
+
+  <p class="note">WebGazer.js(오픈소스 웹캠 시선 추적)로 시선을 추정합니다. 화면 위·아래 가장자리 구역(옅은 띠)에 시선이 약 1.5초 머물면 그 방향이 한 번 늘고, 가운데로 돌아오면 가장자리 빛이 사라집니다. <b>맞춤 후 스테이지에 가짜 숏폼 피드</b>가 열립니다 — 위=다음·아래=이전 (왼쪽·오른쪽은 지금 꺼져 있음). 보는 동안 그 가장자리에 빛이 차오르고, 셀 때 더 밝게 번쩍입니다. 이는 <b>앱 안 시뮬레이션</b>이며 다른 앱 위에 오버레이로 뜨지 않습니다. 맞춤은 이 기기에 저장되어 다음에는 바로 시작합니다. 커서가 어긋나면 ‘다시 맞추기’를 누르세요. 검증된 Eye Tracking API가 아닙니다.</p>
+
+  <div id="gate" class="gate">
+    <div class="gate-card">
+      <h2>아이마우스</h2>
+      <p>WebGazer로 시선을 추정합니다. 처음 한 번만 점을 보면서 <b>점마다 한 번씩</b> 탭해 맞춥니다. 맞춤은 저장되어 다음에는 바로 시작합니다. 위·아래 가장자리 구역을 약 1.5초 보면 그 방향이 한 번 셉니다.</p>
+      <p class="fine sim-note"><b>웹 데모(앱 안)</b> · 맞춤 후 가짜 숏츠/릴스 피드를 시선으로 넘깁니다. YouTube·Instagram 등 다른 앱을 조작하는 네이티브 오버레이가 <b>아닙니다</b>.</p>
+      <p id="gate-saved" class="fine saved-note" hidden>저장된 맞춤이 있어요 · 시작하면 바로 사용합니다. 어긋나면 ‘다시 맞추기’를 누르세요.</p>
+      <button type="button" id="start">앞 카메라 시작</button>
+      <p id="gate-status" class="gate-status">WebGazer를 준비하는 중입니다.</p>
+      <p id="fallback-link" class="fine" hidden><a href="mp.html?v=mp2">계속 실패하면: MediaPipe 방향 버전 열기 →</a></p>
+      <p class="fine">아이폰 Safari에서 이 HTTPS 페이지를 여세요. 카메라는 버튼을 누른 뒤에만 켜집니다. 처음이면 가운데 → 위 → 오른쪽 → 왼쪽 → 아래 점(위·아래·왼쪽·오른쪽 점은 화면 끝에 반쯤 걸쳐 있어요)을 차례로 보면서 <b>각 점을 한 번만</b> 탭하고, 탭한 뒤 잠깐(1초 이내) 그 점을 계속 보세요. 맞춤은 이 기기 브라우저에 저장되며, ‘다시 맞추기’를 누르면 지우고 새로 맞춥니다. 정확도는 맞춤에 따라 달라지며 검증된 Eye Tracking API가 아닙니다. 처음 시작할 때 얼굴 모델(약 10MB)을 내려받습니다. 실패하면 실제 오류가 표시됩니다.</p>
+    </div>
+  </div>
+
+  <!-- Same localforage version WebGazer 3.5.3 bundles; used to write its saved-calibration key. -->
+  <script src="https://cdn.jsdelivr.net/npm/localforage@1.7.3/dist/localforage.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/webgazer@3.5.3/dist/webgazer.js"></script>
+  <script type="module" src="app.js?v=wg10"></script>
+  <noscript><p class="note">이 페이지는 자바스크립트가 필요합니다.</p></noscript>
+</body>
+</html>

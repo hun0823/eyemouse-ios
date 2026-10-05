@@ -1,0 +1,15 @@
+{
+  "appId": "com.zio.eyemouse",
+  "appName": "아이마우스",
+  "webDir": "www",
+  "server": {
+    "iosScheme": "https",
+    "androidScheme": "https"
+  },
+  "ios": {
+    "contentInset": "never",
+    "preferredContentMode": "mobile",
+    "backgroundColor": "#0e141b",
+    "scheme": "EyeMouse"
+  }
+}

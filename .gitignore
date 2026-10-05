@@ -1,0 +1,17 @@
+node_modules/
+.DS_Store
+*.log
+.idea/
+.vscode/
+ios/App/build/
+ios/DerivedData/
+ios/App/App.xcworkspace/xcuserdata/
+ios/App/App.xcodeproj/xcuserdata/
+ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
+*.ipa
+*.dSYM.zip
+*.xcarchive
+__pycache__/
+*.pyc
+uploads/
+agent-tools/

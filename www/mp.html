@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0e141b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>아이마우스 · MediaPipe</title>
+  <link rel="stylesheet" href="style.css?v=wg2">
+</head>
+<body>
+  <div class="rail rail-n" data-dir="up" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="위"><span class="rail-fill"></span></div>
+  <div class="rail rail-s" data-dir="down" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="아래"><span class="rail-fill"></span></div>
+  <div class="rail rail-w" data-dir="left" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="왼쪽"><span class="rail-fill"></span></div>
+  <div class="rail rail-e" data-dir="right" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="오른쪽"><span class="rail-fill"></span></div>
+
+  <div id="gaze-cursor" class="gaze-cursor" hidden aria-hidden="true"></div>
+  <p id="gaze-cursor-label" class="gaze-cursor-label" hidden>실험용 시선 커서 · MediaPipe 얼굴 방향 추정 · 검증된 Eye Tracking API 아님</p>
+
+  <header class="top">
+    <div class="title-row">
+      <div>
+        <h1>아이마우스</h1>
+        <p class="sub">위·오른쪽·왼쪽·아래를 약 2초 보면 그 방향이 한 번 셉니다. (MediaPipe 방향 버전)</p>
+      </div>
+      <video id="cam" playsinline muted autoplay disablepictureinpicture></video>
+    </div>
+    <p id="status" class="status" role="status" aria-live="polite">앞 카메라를 켜 주세요</p>
+    <div class="count-row">
+      <div class="counts" aria-label="방향 횟수">
+        <p class="count" data-dir="up"><span class="count-name">위</span><b id="n-up">0</b></p>
+        <p class="count" data-dir="down"><span class="count-name">아래</span><b id="n-down">0</b></p>
+        <p class="count" data-dir="left"><span class="count-name">왼쪽</span><b id="n-left">0</b></p>
+        <p class="count" data-dir="right"><span class="count-name">오른쪽</span><b id="n-right">0</b></p>
+      </div>
+      <button type="button" id="clear" class="clear">지우기</button>
+      <button type="button" id="recalib" class="clear recalib" disabled>다시 맞추기</button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <span class="edge-tag tag-n" data-dir="up">위</span>
+    <span class="edge-tag tag-s" data-dir="down">아래</span>
+    <span class="edge-tag tag-w" data-dir="left">왼쪽</span>
+    <span class="edge-tag tag-e" data-dir="right">오른쪽</span>
+    <div class="mid">
+      <span id="calib-dot" class="calib-dot" hidden></span>
+      <p id="focus" class="focus-msg">위 점을 봐 주세요</p>
+      <div id="baseline-track" class="baseline-track" hidden>
+        <span id="baseline-fill"></span>
+      </div>
+      <p id="calib-step" class="calib-step" hidden>1/5</p>
+    </div>
+  </main>
+
+  <p class="note">MediaPipe Face Landmarker로 얼굴·눈 방향을 추정합니다. 한 방향으로 약 2초 보면 횟수가 늘고, 정면이나 다른 방향으로 보면 막대는 비워집니다. 커서는 실험용이며 화면의 정확한 응시점이 아닙니다. <a href="./?v=wg2">WebGazer 버전으로</a></p>
+
+  <div id="gate" class="gate">
+    <div class="gate-card">
+      <h2>아이마우스</h2>
+      <p>MediaPipe 방향 버전입니다. 시선을 위, 오른쪽, 왼쪽, 아래 중 한쪽으로 약 2초 유지하면 그 방향이 한 번 셉니다. 화면 커서는 실험용 추정입니다.</p>
+      <button type="button" id="start">앞 카메라 시작</button>
+      <p id="gate-status" class="gate-status">모델을 준비하는 중입니다.</p>
+      <p class="fine">아이폰 Safari에서 이 HTTPS 페이지를 여세요. 카메라는 버튼을 누른 뒤에만 켜집니다. 켜지면 위, 오른쪽, 왼쪽, 아래 점을 순서대로 봐 주세요(준비 단계). 화면의 정확한 응시점이 아니며 검증된 Eye Tracking API가 아닙니다.</p>
+    </div>
+  </div>
+
+  <script type="module" src="mp.js?v=mp2"></script>
+  <noscript><p class="note">이 페이지는 자바스크립트가 필요합니다.</p></noscript>
+</body>
+</html>

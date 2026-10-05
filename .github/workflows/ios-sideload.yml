@@ -1,0 +1,121 @@
+# 맥 없이: GitHub 호스트 macOS 러너에서 미서명 IPA 생성 → Sideloadly / SideStore
+# 무료 Apple ID로 설치·재서명 (7일). 유료 Developer Program 불필요.
+name: iOS IPA (Sideload / 무료 Apple ID)
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle_id:
+        description: "Bundle ID (Sideloadly와 동일하게)"
+        required: false
+        default: "com.zio.eyemouse"
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - "www/**"
+      - "ios/**"
+      - "capacitor.config.json"
+      - "package.json"
+      - ".github/workflows/ios-sideload.yml"
+
+concurrency:
+  group: ios-sideload-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-ipa:
+    runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync Capacitor iOS (www → ios/App/App/public)
+        run: npx cap sync ios
+
+      - name: Apply bundle ID override
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.bundle_id != ''
+        run: |
+          BUNDLE_ID="${{ github.event.inputs.bundle_id }}"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" ios/App/App/Info.plist 2>/dev/null || true
+          sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER = .*;/PRODUCT_BUNDLE_IDENTIFIER = ${BUNDLE_ID};/g" ios/App/App.xcodeproj/project.pbxproj
+          echo "Bundle ID → $BUNDLE_ID"
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/spm-clones"
+
+      - name: Build Release (iphoneos, no code signing)
+        run: |
+          set -euo pipefail
+          DERIVED="$RUNNER_TEMP/DerivedData"
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$DERIVED" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            build
+
+      - name: Package unsigned IPA
+        id: pack
+        run: |
+          set -euo pipefail
+          DERIVED="$RUNNER_TEMP/DerivedData"
+          APP=$(find "$DERIVED/Build/Products" -name "App.app" -type d | head -1)
+          if [ -z "$APP" ]; then
+            echo "App.app not found under DerivedData"
+            find "$DERIVED" -name "*.app" || true
+            exit 1
+          fi
+          STAGE="$RUNNER_TEMP/ipa-stage"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE/Payload"
+          cp -R "$APP" "$STAGE/Payload/"
+          OUT="$RUNNER_TEMP/EyeMouse-unsigned.ipa"
+          (cd "$STAGE" && zip -qr "$OUT" Payload)
+          echo "ipa_path=$OUT" >> "$GITHUB_OUTPUT"
+          echo "IPA size: $(du -h "$OUT" | cut -f1)"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eyemouse-ios-unsigned-${{ github.run_number }}
+          path: ${{ steps.pack.outputs.ipa_path }}
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Summary
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## 아이마우스 미서명 IPA
+
+          1. **Actions → 이 workflow 실행 → Artifacts**에서 `eyemouse-ios-unsigned-*.ipa` 다운로드
+          2. Windows/Mac **[Sideloadly](https://sideloadly.io/)** 또는 iPhone **SideStore**로 설치
+          3. **무료 Apple ID**로 서명 · **7일** 후 재설치/갱신 필요
+          4. 이 IPA는 **미서명**입니다. Mac 없이도 **빌드**는 GitHub macOS 러너가 대신합니다.
+
+          자세한 절차: `docs/MAC없이-배포.md`
+          EOF

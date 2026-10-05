@@ -1,0 +1,19 @@
+{
+  "name": "eyemouse-ios",
+  "version": "1.0.0",
+  "private": true,
+  "description": "아이마우스 iOS wrapper (WebGazer wg10) — Capacitor + WKWebView",
+  "scripts": {
+    "sync": "npx cap sync ios",
+    "open:ios": "npx cap open ios",
+    "preview": "python3 scripts/preview-www.py"
+  },
+  "dependencies": {
+    "@capacitor/cli": "^7.6.9",
+    "@capacitor/core": "^7.6.9",
+    "@capacitor/ios": "^7.6.9"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}
