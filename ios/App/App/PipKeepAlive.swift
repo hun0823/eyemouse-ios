@@ -13,7 +13,7 @@ final class PipKeepAlive {
             try session.setCategory(
                 .playAndRecord,
                 mode: .videoChat,
-                options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothHFP]
+                options: [.mixWithOthers, .defaultToSpeaker]
             )
             try session.setActive(true, options: [])
         } catch {

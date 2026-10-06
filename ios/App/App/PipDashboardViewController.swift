@@ -189,7 +189,7 @@ final class PipDashboardViewController: AVPictureInPictureVideoCallViewControlle
         previewLayer = layer
         layer.videoGravity = .resizeAspectFill
         previewHost.layer.addSublayer(layer)
-        setNeedsLayout()
+        view.setNeedsLayout()
     }
 
     override func viewDidLayoutSubviews() {

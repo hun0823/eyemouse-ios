@@ -9,7 +9,7 @@ protocol CameraSessionManagerDelegate: AnyObject {
 }
 
 /// Front-camera `AVCaptureSession` with iOS 16+ multitasking camera when the OS allows it.
-final class CameraSessionManager: NSObject {
+final class CameraSessionManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     let session = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "com.zio.eyemouse.camera")
     private let output = AVCaptureVideoDataOutput()
@@ -178,6 +178,7 @@ final class CameraSessionManager: NSObject {
             device.activeVideoMinFrameDuration = duration
             device.activeVideoMaxFrameDuration = duration
         }
+    }
 
     private func installObservers() {
         guard observers.isEmpty else { return }

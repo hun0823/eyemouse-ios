@@ -186,7 +186,7 @@ final class GazeClassifier {
             lock.unlock()
             return
         }
-        let faces = (request.results as? [VNFaceObservation]) ?? []
+        let faces = request.results ?? []
         guard let face = faces.max(by: { $0.boundingBox.width * $0.boundingBox.height < $1.boundingBox.width * $1.boundingBox.height })
         else {
             lock.lock()
