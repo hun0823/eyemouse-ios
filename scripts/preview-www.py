@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local preview of the bundled wg10 page (not the iOS binary)."""
+"""Local preview of the bundled wg12-ud page (not the iOS binary)."""
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -17,5 +17,5 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"아이마우스 wg10 preview  http://127.0.0.1:{PORT}/?v=wg10", flush=True)
+    print(f"아이마우스 wg12-ud preview  http://127.0.0.1:{PORT}/?v=wg12", flush=True)
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

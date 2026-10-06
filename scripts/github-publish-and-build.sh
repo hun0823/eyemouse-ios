@@ -16,7 +16,7 @@ gh auth setup-git 2>/dev/null || true
 
 if ! gh repo view "$REPO" >/dev/null 2>&1; then
   echo "Creating public repo $REPO ..."
-  gh repo create "$REPO" --public --source=. --remote=github --push --description "아이마우스 iOS (WebGazer wg10) · Capacitor"
+  gh repo create "$REPO" --public --source=. --remote=github --push --description "아이마우스 iOS (WebGazer wg12) · Capacitor"
 else
   git remote remove github 2>/dev/null || true
   git remote add github "https://github.com/${REPO}.git"

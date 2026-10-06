@@ -2,7 +2,7 @@ import UIKit
 import Capacitor
 import WebKit
 
-/// WKWebView host for the bundled WebGazer wg10 page.
+/// WKWebView host for the bundled WebGazer wg12-ud page (up/down only).
 /// Capacitor already grants iOS 15+ media-capture prompts; this subclass
 /// only tunes the web view so the front camera can play inline.
 final class EyeMouseViewController: CAPBridgeViewController {

@@ -346,51 +346,65 @@ h1 {
   .count b.pop { animation: none; }
 }
 
-/* Tappable calibration target (WebGazer learns from these taps). */
+/* wg11: display-only calibration target (no tap). 3×3 grid, slightly inset from the screen
+   edges / safe area so Safari chrome can't clip it. The outer ring is a conic countdown (--p 0..1)
+   and the core shows the remaining whole seconds. */
+:root { --calib-inset: 30px; }
 .calib-dot {
-  appearance: none;
   position: fixed;
   z-index: 25;
   width: 48px;
   height: 48px;
   margin: 0;
   padding: 0;
-  border: 0;
   border-radius: 50%;
-  background: #9aa7b6;
-  box-shadow: 0 0 0 10px rgba(154, 167, 182, 0.18);
-  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
-  pointer-events: auto;
-  touch-action: none;
-  -webkit-tap-highlight-color: transparent;
-  -webkit-touch-callout: none;
-  cursor: pointer;
+  --p: 0;
+  --ring: var(--charge);
+  background:
+    radial-gradient(circle, #e8eef5 0 12px, rgba(232, 238, 245, 0) 13px),
+    conic-gradient(var(--ring) calc(var(--p) * 360deg), rgba(255, 255, 255, 0.16) 0);
+  box-shadow: 0 0 0 8px rgba(154, 167, 182, 0.16);
+  transform: translate(-50%, -50%);
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-/* wg4: larger invisible hit area around the 48px dot. */
-.calib-dot::before {
-  content: "";
-  position: absolute;
-  inset: -18px;
-  border-radius: 50%;
+.calib-count {
+  color: #0e141b;
+  font-size: 0.9rem;
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
-/* wg5: edge dots are centered ON the edge midpoints (half the dot hangs past the screen edge, or
-   sits on the safe-area line where there is a notch / home indicator). Their tap targets — and so
-   WebGazer's training targets — are the true screen edges. Visible half = 24px + the hit ring. */
-.calib-dot.center { top: 50%; left: 50%; transform: translate(-50%, -50%); }
-.calib-dot.up { top: var(--safe-t); left: 50%; transform: translate(-50%, -50%); }
-.calib-dot.down { bottom: var(--safe-b); left: 50%; transform: translate(-50%, 50%); }
-.calib-dot.left { left: var(--safe-l); top: 50%; transform: translate(-50%, -50%); }
-.calib-dot.right { right: var(--safe-r); top: 50%; transform: translate(50%, -50%); }
+/* Columns */
+.calib-dot.p-tl, .calib-dot.p-ml, .calib-dot.p-bl { left: calc(var(--safe-l) + var(--calib-inset)); }
+.calib-dot.p-tc, .calib-dot.p-mc, .calib-dot.p-bc { left: 50%; }
+.calib-dot.p-tr, .calib-dot.p-mr, .calib-dot.p-br { left: calc(100% - var(--safe-r) - var(--calib-inset)); }
+/* Rows */
+.calib-dot.p-tl, .calib-dot.p-tc, .calib-dot.p-tr { top: calc(var(--safe-t) + var(--calib-inset)); }
+.calib-dot.p-ml, .calib-dot.p-mc, .calib-dot.p-mr { top: 50%; }
+.calib-dot.p-bl, .calib-dot.p-bc, .calib-dot.p-br { top: calc(100% - var(--safe-b) - var(--calib-inset)); }
 
-.calib-dot.locked {
-  background: var(--charge);
-  box-shadow: 0 0 0 12px rgba(255, 213, 106, 0.32);
+.calib-dot.wait { box-shadow: 0 0 0 8px rgba(154, 167, 182, 0.22); }
+.calib-dot.sampling {
+  box-shadow: 0 0 0 10px rgba(255, 213, 106, 0.22), 0 0 18px rgba(255, 213, 106, 0.35);
+  transform: translate(-50%, -50%) scale(1.06);
 }
-.calib-dot.center.locked,
-.calib-dot.up.locked,
-.calib-dot.left.locked { transform: translate(-50%, -50%) scale(1.06); }
-.calib-dot.down.locked { transform: translate(-50%, 50%) scale(1.06); }
-.calib-dot.right.locked { transform: translate(50%, -50%) scale(1.06); }
+.calib-dot.retry {
+  --ring: var(--warn);
+  box-shadow: 0 0 0 10px rgba(255, 140, 90, 0.28);
+  animation: calib-shake 0.35s ease;
+}
+@keyframes calib-shake {
+  0%, 100% { transform: translate(-50%, -50%); }
+  30% { transform: translate(calc(-50% - 4px), -50%); }
+  60% { transform: translate(calc(-50% + 4px), -50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .calib-dot.retry { animation: none; }
+}
 
 .calib-step {
   margin: 8px 0 0;
@@ -467,8 +481,8 @@ body.calibrating .focus-msg {
 }
 
 body.calibrating .gaze-cursor-label {
-  /* wg5: clear of the bottom-edge dot (its visible half + hit ring reach ~42px up). */
-  bottom: calc(var(--safe-b) + 58px);
+  /* wg11: clear of the bottom-row dots (inset 30px + 24px radius + glow ≈ 66px up). */
+  bottom: calc(var(--safe-b) + 84px);
 }
 
 /* Hide WebGazer's default floating UI; we use #cam + our cursor. */
@@ -779,13 +793,37 @@ body.calibrating .feed { display: none !important; }
   .feed-toast { animation: none; }
 }
 
-/* ---- wg7: up/down only — left/right dwell disabled, hide their rails/counts/tags/zones ---- */
-.count[data-dir="left"], .count[data-dir="right"],
-.edge-tag[data-dir="left"], .edge-tag[data-dir="right"],
-.zone[data-dir="left"], .zone[data-dir="right"] { display: none !important; }
+/* ---- wg11: left/right counts, edge tags and zones are visible again (wg7 hid them) ---- */
+.zone-w, .zone-e { background: rgba(142, 224, 194, 0.055); }
+.zone.hot { background: rgba(255, 213, 106, 0.16); }
 
 /* ---- wg9: hide all dwell gauge rails — feedback is ambient edge light only ---- */
 .rail { display: none !important; visibility: hidden; }
 
 /* wg7/wg9: ambient canvas used for dwell charge + commit flash; full strength. */
 .ambient-glow { opacity: 1; }
+
+/* ---- wg11: 4 count cards again — buttons stacked on the right so the 2×2 cards fit on phones ---- */
+.count-actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.count-actions .clear { min-height: 40px; padding: 6px 10px; white-space: nowrap; }
+.count { align-items: center; gap: 6px; padding: 6px 9px; }
+.count-name { font-size: 0.78rem; letter-spacing: -0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.count b { font-size: 1.35rem; }
+body.calibrating .count-actions #clear { visibility: hidden; }
+/* wg12: A/B link to the untouched wg10 build at /wg10/ */
+.ab-link a { color: var(--muted); }
+
+/* ---- wg12-ud: up/down-only mode (<html data-dirs="ud"> or ?dirs=ud; the iOS app uses it) ----
+   Left/right counts, edge tags, zones and comment hint are hidden; default (4 dirs) unchanged. */
+.only-ud { display: none; }
+html[data-dirs="ud"] .only-ud { display: inline; }
+html[data-dirs="ud"] .only-4 { display: none; }
+html[data-dirs="ud"] .count[data-dir="left"], html[data-dirs="ud"] .count[data-dir="right"],
+html[data-dirs="ud"] .edge-tag[data-dir="left"], html[data-dirs="ud"] .edge-tag[data-dir="right"],
+html[data-dirs="ud"] .zone[data-dir="left"], html[data-dirs="ud"] .zone[data-dir="right"],
+html[data-dirs="ud"] .comment-hint { display: none !important; }

@@ -1,11 +1,13 @@
 # 아이마우스 iOS
 
-WebGazer wg10 테스트 페이지를 Capacitor WKWebView로 감싼 **Xcode iOS 프로젝트**입니다.
+WebGazer **wg12 위·아래 전용(wg12-ud)** 페이지를 Capacitor WKWebView로 감싼 **Xcode iOS 프로젝트**입니다.
+
+앱 버전 **1.1 (빌드 2)** · 맞춤: 화면 9개 점(3×3)을 차례로 보며 점마다 약 2초 카운트다운(탭 없음) · 위=다음, 아래=이전 · **왼쪽·오른쪽은 지금 꺼져 있음**(댓글 열기·뒤로가기 없음).
 
 번들 ID: `com.zio.eyemouse`  
 표시 이름: 아이마우스  
-원본 웹: [https://jolly-gecko-arcade.s-h.day/?v=wg10](https://jolly-gecko-arcade.s-h.day/?v=wg10)  
-로컬 웹 자산: `www/` (`eyemouse-web-wg10` 첨부 파일)
+웹 미리보기(같은 위·아래 전용): [https://jolly-gecko-arcade.gosunuts.xyz/?v=wg12&dirs=ud](https://jolly-gecko-arcade.gosunuts.xyz/?v=wg12&dirs=ud) · 4방향 웹: `?v=wg12`  
+로컬 웹 자산: `www/` (`eyemouse-web` wg12 + `<html data-dirs="ud">` → 위·아래만)
 
 이 앱은 **앱 안 숏츠 시뮬레이션**입니다. YouTube·Instagram 위에 뜨는 오버레이가 아닙니다. WebGazer는 검증된 Eye Tracking API가 아닙니다.
 
@@ -127,7 +129,7 @@ WebGazer 얼굴 모델(약 10MB)과 스크립트는 `cdn.jsdelivr.net`에서 받
 ## 프로젝트 구조
 
 ```
-www/                         첨부 wg10 웹 (index.html, app.js, style.css, mp.html, mp.js)
+www/                         wg12-ud 웹 (index.html[data-dirs="ud"], app.js, style.css, mp.html, mp.js)
 capacitor.config.json        appId com.zio.eyemouse, iOS scheme https (getUserMedia용)
 ios/App/App.xcodeproj        Mac에서 여는 Xcode 프로젝트
 ios/App/App/Info.plist       카메라/마이크 사용 설명
@@ -151,7 +153,7 @@ npx cap sync ios
 
 ```bash
 npm run preview
-# http://127.0.0.1:43127/?v=wg10
+# http://127.0.0.1:43127/?v=wg12
 ```
 
 ---

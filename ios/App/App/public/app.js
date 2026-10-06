@@ -1,8 +1,10 @@
 // 아이마우스 — WebGazer.js gaze engine (not a verified Eye Tracking API).
 // Gaze (x,y) from WebGazer drives the soft cursor and edge dwell counts.
-// Calibration: look at each dot and tap ONCE; while you keep looking, ~0.8 s of frames are
-// recorded for that dot (capped so every dot fits WebGazer's 50-sample click window). The finished model is saved (WebGazer's own localforage key) so the
-// next visit skips calibration; 다시 맞추기 wipes it and calibrates again.
+// Calibration (wg11/wg12): 9 dots (3×3 grid), NO tap. Each dot shows a ~2 s countdown; once the
+// eyes have settled, a few distinct face-present camera frames are recorded for that dot; it
+// auto-advances when the countdown ends with enough samples, otherwise the same dot is retried.
+// The finished model is saved (wg12: under our own localforage key, loaded by us) so the next
+// visit skips calibration; 다시 맞추기 wipes it and calibrates again.
 // wg5: edge dots flush on the 4 screen edges, per-axis edge map after calibration, slower cursor.
 // wg6: DWELL 1.5s, ambient edge glow, in-app shorts feed demo (not native overlay).
 // wg7: up/down only (left/right dwell disabled: no back, no comments), slower cursor.
@@ -12,6 +14,15 @@
 //      brighter flash on count (unchanged); gaze cursor halved.
 // wg10: slower gaze cursor (lower SMOOTH + MAX_SPEED); 1500 ms count cooldown after
 //       successful up/down (clears dwell / ambient charge during cooldown).
+// wg11: 9-point countdown calibration (no tap); left/right dwell re-enabled (left = 뒤로/댓글 닫기,
+//       right = 댓글 열기); ambient glow + cooldown for all four edges; saved calib key v3.
+// wg12: accuracy back to wg10 level — stock 50-sample WebGazer window again (wg11's 144 put the
+//       ridge fit at n≈120 features, its noisiest point), center 10 + 8×5 samples, longer settle
+//       before sampling, edge map from the 4 edge-midpoint dots only, mapped to the true screen
+//       edges (as wg10); own storage key so /wg10/ A/B on the same origin can't clobber it; v4.
+// wg12-ud: optional up/down-only mode (<html data-dirs="ud"> as in the iOS app, or ?dirs=ud):
+//       left/right never count (no back / comments) and their cards/tags/zones are hidden.
+//       Calibration (9 dots), saved key, cursor, dwell, glow and cooldown are identical.
 
 const DWELL_MS = 1500; // wg6: was 2000
 const DWELL_MS_DOWN = 1200; // wg8: slightly easier to finish a down count
@@ -25,7 +36,7 @@ const FACE_GRACE_MS = 400;
 const CURSOR_SMOOTH = 0.02; // wg10: was 0.035 (≈ 820 ms time constant now)
 const CURSOR_MEDIAN_N = 7; // raw gaze points in the median window (~0.25–0.45 s of camera frames)
 const CURSOR_MAX_SPEED = 0.45; // viewport widths/heights per second (wg10: was 0.7)
-const COUNT_COOLDOWN_MS = 1500; // wg10: block new counting after a successful up/down
+const COUNT_COOLDOWN_MS = 1500; // wg10/wg11: block new counting after any successful count (all 4 dirs)
 const CURSOR_HIDE_MS = 1500; // keep the cursor (frozen) through short face/gaze drop-outs
 // wg5: edge mapping. Ridge regression shrinks toward the mean of the training targets, so the raw
 // gaze never quite reaches the calibration dots and drifts back to the middle. After calibration
@@ -34,33 +45,39 @@ const CURSOR_HIDE_MS = 1500; // keep the cursor (frozen) through short face/gaze
 const EDGE_MAP_MIN_SPREAD = 0.08; // need at least this much raw left↔right / top↔bottom separation
 const EDGE_MAP_GAIN_MIN = 0.7;
 const EDGE_MAP_GAIN_MAX = 3.5;
-const EDGE_MAP_PER_DOT = 5; // stored samples predicted per edge dot (keeps the fit cheap)
+const EDGE_MAP_PER_DOT = 5; // stored samples predicted per edge-midpoint dot (wg12: as wg10)
 const READY_MS = 1000;
 const COMMIT_HOLD_MS = 700;
 // Edge bands (normalized viewport height). Top stays 22%; bottom is wider so looking down
 // registers more easily (WebGazer often undershoots the lower edge).
-const EDGE_FRAC = 0.22; // top (and unused left/right) — keep for layout helpers
+const EDGE_FRAC = 0.22; // left/right side strips (wg11: active again)
 const EDGE_FRAC_UP = 0.22; // wg8: unchanged top band
 const EDGE_FRAC_DOWN = 0.30; // wg8: bottom 30% (within 28–32%)
+const ZONE_HYST = 0.03; // wg11: the zone being dwelt in grows by this much (no flicker at borders)
 // Extra Y push toward the bottom after the linear edge map (fraction of viewport height at ny=1).
 const EDGE_DOWN_BIAS = 0.10;
-// One tap per calibration dot. After the tap we keep sampling distinct camera frames for a
-// short window while the user keeps looking at the dot (better than duplicating one frame).
-const TAPS_PER_POINT = 1;
-const SAMPLE_WINDOW_MS = 600;
-// wg4: WebGazer's ridge regression keeps click samples in a DataWindow ring buffer of 50.
-// wg3 took up to 14 per dot and judged success by getData().length growth, so by the 5th dot
-// (아래) the buffer was full, length stayed 50, "added" was 0 and the dot never advanced
-// (and the center dot's samples were being overwritten). Now: cap per dot so all 5 fit, and
-// count recorded samples ourselves (wrapped addData) instead of reading the saturating length.
+// wg11/wg12: no-tap countdown calibration. Each dot: COUNTDOWN_MS visible countdown; frames are
+// recorded only after SETTLE_MS (saccade done + WebGazer's frame latency on iPhone), at most one
+// per camera frame and spaced a little, only while a face is detected. Too few → retry that dot.
+const COUNTDOWN_MS = 2000; // wg12: was 1800
+const SETTLE_MS = 750; // wg12: was 380 (early frames could still be mid-saccade / stale)
+const FIRST_LEAD_MS = 900; // extra "준비" time before the very first dot's countdown
+const RETRY_PAUSE_MS = 700; // short pause (warning shown) before a retried dot restarts
+const MIN_POINT_FRAC = 0.6; // need ceil(60%) of a dot's cap (3 of 5, 6 of 10)
+const SKIP_AFTER_ATTEMPTS = 4; // after this many tries, accept a dot with >= 2 samples
+// wg12: WebGazer 3.5.3's stock 50-sample click window (no patch). Its ridge regression has 120
+// eye features and a tiny ridge term and is refit every frame; wg11's 144-sample window landed
+// at n≈120 samples, where the least-squares fit is the most noise-sensitive, and was ~3× slower.
+// Center keeps 2 shares (10 samples, like wg10), the 8 other dots 1 share (5 each) → 50.
 const WG_CLICK_WINDOW = 50;
-const SAMPLE_GOOD = 1; // advance right after the 0.6 s window once at least one frame had a face
-const SAMPLE_EXTEND_MS = 1000; // no face yet? keep trying up to this long, then advance anyway
-const MAX_POINT_FAILS = 0; // always advance after the window: one tap per dot, never stuck
-// Saved calibration: same key WebGazer's saveDataAcrossSessions(true) loads on begin().
-const SAVE_KEY = "webgazerGlobalData";
-// wg5: v2 = edge-flush dots. Old (inset-dot) saves are ignored so everyone recalibrates once.
-const META_KEY = "eyemouse.wg.calib.v2";
+const CENTER_SHARES = 2;
+// wg12: own saved-calibration key (WebGazer's own "webgazerGlobalData" auto-load is off), so the
+// untouched wg10 build at /wg10/ on the same origin can't load / overwrite this model.
+const SAVE_KEY = "eyemouse.wg12.data";
+// wg5: v2 = edge-flush dots. wg11: v3 = 9-point countdown. wg12: v4 (wg11 saves are discarded).
+const META_KEY = "eyemouse.wg.calib.v4";
+const META_VERSION = 4;
+const OLD_META_KEYS = ["eyemouse.wg.calib.v3"]; // wg11 (wg10's v2 is left alone for /wg10/)
 const MIN_SAVED_SAMPLES = 10;
 const CHECK_MIN_MS = 1500;
 const CHECK_MAX_MS = 5000;
@@ -73,10 +90,10 @@ const BEGIN_TIMEOUT_MS = 60000;
 // assets that ship inside the same WebGazer npm package.
 const WG_FACEMESH_PATH = "https://cdn.jsdelivr.net/npm/webgazer@3.5.3/dist/mediapipe/face_mesh";
 
-// Center first (anchors WebGazer's model), then the 4 edge midpoints. wg5: the edge dots sit
-// centered ON the screen edge (half the dot past the edge, or on the safe-area line), so their
-// recorded targets are the true edges and the edge map stretches gaze to the full screen.
-const CALIB_ORDER = ["center", "up", "right", "left", "down"];
+// wg11: 3×3 grid. Center first (anchors WebGazer's model), then clockwise around the edge:
+// corners + edge midpoints, slightly inset (CSS --calib-inset) so Safari chrome can't clip them.
+// t/m/b = top/middle/bottom row, l/c/r = left/center/right column.
+const CALIB_ORDER = ["mc", "tl", "tc", "tr", "mr", "br", "bc", "bl", "ml"];
 
 const DIR_META = {
   up: { watch: "위로 보는 중", name: "위" },
@@ -85,17 +102,36 @@ const DIR_META = {
   right: { watch: "오른쪽으로 보는 중", name: "오른쪽" },
 };
 const DIRS = ["up", "down", "left", "right"];
-// wg7: only these directions count / drive the feed. Left/right are disabled (hidden in CSS).
-const ACTIVE_DIRS = ["up", "down"];
+// wg11: all four directions count / drive the feed again (left = 뒤로, right = 댓글).
+// wg12-ud: up/down-only when <html data-dirs="ud"> (iOS app) or the URL has ?dirs=ud.
+const DIR_MODE = (() => {
+  const q = new URLSearchParams(location.search).get("dirs");
+  const mode = q === "ud" || q === "4" ? q : document.documentElement.getAttribute("data-dirs") === "ud" ? "ud" : "4";
+  document.documentElement.setAttribute("data-dirs", mode); // CSS hides left/right UI in "ud"
+  return mode;
+})();
+const UP_DOWN_ONLY = DIR_MODE === "ud";
+const BUILD = UP_DOWN_ONLY ? "wg12-ud" : "wg12";
+const ACTIVE_DIRS = UP_DOWN_ONLY ? ["up", "down"] : ["up", "down", "left", "right"];
+const EDGE_WORDS = UP_DOWN_ONLY ? "위·아래" : "위·아래·왼쪽·오른쪽";
+const DIR_ACT = { up: "다음", down: "이전", left: "뒤로", right: "댓글" };
+const DIR_HINT = { up: "위 · 다음", down: "아래 · 이전", left: "왼쪽 · 뒤로", right: "오른쪽 · 댓글" };
 const AMBIENT_FLASH_MS = 950; // one light sweep along the committed edge
 
-const CALIB_TEXT = {
-  center: "가운데 점을 보고 탭하세요",
-  up: "위 점을 보고 탭하세요",
-  down: "아래 점을 보고 탭하세요",
-  right: "오른쪽 점을 보고 탭하세요",
-  left: "왼쪽 점을 보고 탭하세요",
+const CALIB_NAME = {
+  mc: "가운데",
+  tl: "왼쪽 위",
+  tc: "위 가운데",
+  tr: "오른쪽 위",
+  mr: "오른쪽 가운데",
+  br: "오른쪽 아래",
+  bc: "아래 가운데",
+  bl: "왼쪽 아래",
+  ml: "왼쪽 가운데",
 };
+function calibText(key) {
+  return (CALIB_NAME[key] || "") + " 점을 보세요";
+}
 
 const cam = document.querySelector("#cam");
 const statusEl = document.querySelector("#status");
@@ -105,6 +141,7 @@ const startBtn = document.querySelector("#start");
 const clearBtn = document.querySelector("#clear");
 const focusEl = document.querySelector("#focus");
 const calibDot = document.querySelector("#calib-dot");
+const calibCountEl = document.querySelector("#calib-count");
 const baselineTrack = document.querySelector("#baseline-track");
 const baselineFill = document.querySelector("#baseline-fill");
 const calibStepEl = document.querySelector("#calib-step");
@@ -124,10 +161,12 @@ let running = false;
 let started = false;
 let phase = "idle"; // idle | check (saved model) | calib | ready | count
 let calibIndex = 0;
-let tapsOnPoint = 0;
-let sampling = null; // {start, base, cap, x, y} while recording frames for the current dot
+let sampling = null; // wg11: {key, start, end, base, cap, gap, x, y, lastRec} for the active dot
 let recordedTotal = 0; // eye-feature samples actually added to WebGazer (counted in addData)
-let pointFails = 0;
+let pointBase = 0; // recordedTotal when the current dot first appeared (samples accumulate over retries)
+let pointAttempts = 0;
+let retryTimer = 0;
+let backstopTimer = 0;
 let checkStart = 0;
 let checkPreds = [];
 let lastGazeAt = 0;
@@ -148,7 +187,6 @@ let lastCursorAt = 0;
 let edgeMap = null; // {ax,bx,ay,by} raw px → screen px, null = identity
 let edgeMapJob = 0;
 let rafId = 0;
-let tapLock = false;
 
 // ---- wg6: ambient edge glow + in-app shorts feed demo ----
 const ambientCanvas = document.querySelector("#ambient-glow");
@@ -296,9 +334,28 @@ function flashAmbient(dir) {
   ambientCharge = null; // commit flash replaces the charge build
 }
 
+/**
+ * wg11: run `fn(ctx, w, h, top)` in a frame where the target edge is the top (top=true) or bottom
+ * (top=false) edge of a w×h rect. Left/right swap the axes, so the same painters draw along the
+ * vertical edges (flow runs top→bottom there).
+ */
+function withEdgeFrame(ctx, w, h, dir, fn) {
+  const side = dir === "left" || dir === "right";
+  ctx.save();
+  if (side) ctx.transform(0, 1, 1, 0, 0, 0); // (u,v) → (x=v, y=u)
+  try {
+    return fn(ctx, side ? h : w, side ? w : h, dir === "up" || dir === "left");
+  } finally {
+    ctx.restore();
+  }
+}
+
 /** Draw soft dwell-charge glow along one edge (amount 0..1). */
 function paintAmbientCharge(ctx, w, h, dir, amount, now) {
-  const top = dir === "up";
+  return withEdgeFrame(ctx, w, h, dir, (c, ww, hh, top) => paintChargeEdge(c, ww, hh, top, amount, now));
+}
+
+function paintChargeEdge(ctx, w, h, top, amount, now) {
   const a = Math.max(0, Math.min(1, amount));
   if (a <= 0.001) return;
   const band = Math.max(22, Math.min(48, Math.min(w, h) * 0.065)) * (0.55 + 0.45 * a);
@@ -336,11 +393,14 @@ function paintAmbientCharge(ctx, w, h, dir, amount, now) {
   ctx.restore();
 }
 
-/** Draw the brighter commit flash (existing wg7 sweep). */
+/** Draw the brighter commit flash (existing wg7 sweep), on any of the 4 edges. */
 function paintAmbientFlash(ctx, w, h, f, now) {
   const p = (now - f.start) / AMBIENT_FLASH_MS;
   if (p >= 1 || p < 0) return false;
-  const top = f.dir === "up";
+  return withEdgeFrame(ctx, w, h, f.dir, (c, ww, hh, top) => paintFlashEdge(c, ww, hh, top, p));
+}
+
+function paintFlashEdge(ctx, w, h, top, p) {
   const band = Math.max(26, Math.min(54, Math.min(w, h) * 0.07));
   const env = p < 0.15 ? p / 0.15 : Math.pow(1 - (p - 0.15) / 0.85, 1.6);
   const gold = "255,213,106";
@@ -506,8 +566,16 @@ function closeComments(toast) {
   if (toast) showFeedToast("댓글 닫힘 · 뒤로가기");
 }
 
+/** wg11: moving to another video closes an open comment panel (quietly). */
+function dropComments() {
+  if (!commentOpen) return;
+  while (feedHistory.length && feedHistory[feedHistory.length - 1].type === "comments") feedHistory.pop();
+  closeComments(false);
+}
+
 function feedNext() {
   if (!feedItems.length) return;
+  dropComments();
   if (feedIndex >= feedItems.length - 1) {
     showFeedToast("마지막 영상");
     return;
@@ -519,6 +587,7 @@ function feedNext() {
 
 function feedPrev() {
   if (!feedItems.length) return;
+  dropComments();
   if (feedIndex <= 0) {
     showFeedToast("첫 영상");
     return;
@@ -552,9 +621,15 @@ function feedBack() {
 
 function onFeedAction(dir) {
   if (feedEl && feedEl.hidden) return;
-  // wg7: only up/down act. Left (back) and right (comments) are disabled for now.
+  if (!ACTIVE_DIRS.includes(dir)) return; // wg12-ud: left/right off
+  // wg11: up = 다음, down = 이전, left = 뒤로가기 (댓글 닫기), right = 댓글 열기.
   if (dir === "up") feedNext();
   else if (dir === "down") feedPrev();
+  else if (dir === "left") feedBack();
+  else if (dir === "right") {
+    if (commentOpen) showFeedToast("댓글 열려 있음 · 왼쪽 = 닫기");
+    else openComments();
+  }
 }
 
 
@@ -650,33 +725,43 @@ function updateGazeCursor(gaze, now) {
 }
 
 /**
- * Map WebGazer viewport gaze to an edge zone (or null = empty center).
- * Zones (normalized viewport; wg8 asymmetric up/down):
- *   up    = y < EDGE_FRAC_UP (0.22)
- *   down  = y > 1 - EDGE_FRAC_DOWN (0.30 → starts at ny > 0.70)
- *   left/right unused (ACTIVE_DIRS = up/down only)
- * The middle counts nothing. The zone already being dwelt in is kept so edge jitter does not
- * reset the dwell timer.
+ * Map the (edge-mapped, smoothed) gaze to an edge zone, or null = empty center.
+ * Zones (normalized viewport; wg8 asymmetric up/down, wg11 left/right side strips):
+ *   up    = full-width band, y < EDGE_FRAC_UP (0.22)
+ *   down  = full-width band, y > 1 - EDGE_FRAC_DOWN (0.70)
+ *   left  = x < EDGE_FRAC (0.22), between the up and down bands
+ *   right = x > 1 - EDGE_FRAC, between the up and down bands
+ * Up/down win in the corners (same bands as wg8–wg10). The zone being dwelt in grows by
+ * ZONE_HYST so edge jitter does not reset the dwell timer.
  */
+function inZone(d, nx, ny, extra) {
+  const upEdge = EDGE_FRAC_UP;
+  const downEdge = 1 - EDGE_FRAC_DOWN;
+  switch (d) {
+    case "up":
+      return ny < upEdge + extra;
+    case "down":
+      return ny > downEdge - extra;
+    case "left":
+      return nx < EDGE_FRAC + extra && ny >= upEdge - extra && ny <= downEdge + extra;
+    case "right":
+      return nx > 1 - EDGE_FRAC - extra && ny >= upEdge - extra && ny <= downEdge + extra;
+    default:
+      return false;
+  }
+}
+
 function directionFromGaze(gaze, current) {
   if (!gaze) return null;
   const vw = window.innerWidth || 1;
   const vh = window.innerHeight || 1;
   const nx = clamp(gaze.x / vw, 0, 1);
   const ny = clamp(gaze.y / vh, 0, 1);
-  const depth = {
-    up: EDGE_FRAC_UP - ny,
-    down: ny - (1 - EDGE_FRAC_DOWN),
-    left: EDGE_FRAC - nx,
-    right: nx - (1 - EDGE_FRAC),
-  };
-  // wg7: only up/down bands exist (full width); left/right never count.
-  const cands = ACTIVE_DIRS.filter((d) => depth[d] > 0);
-  if (!cands.length) return null;
-  if (current && cands.includes(current)) return current;
-  let best = cands[0];
-  for (const d of cands) if (depth[d] > depth[best]) best = d;
-  return best;
+  if (current && ACTIVE_DIRS.includes(current) && inZone(current, nx, ny, ZONE_HYST)) return current;
+  for (const d of ["up", "down", "left", "right"]) {
+    if (ACTIVE_DIRS.includes(d) && inZone(d, nx, ny, 0)) return d;
+  }
+  return null;
 }
 
 /** Draw the zones exactly as directionFromGaze splits them. */
@@ -686,39 +771,39 @@ function layoutZones() {
   const a = EDGE_FRAC * 100 + "%";
   const b = (1 - EDGE_FRAC) * 100 + "%";
   const shapes = {
-    up: `polygon(0 0, 100% 0, ${b} ${a}, ${a} ${a})`,
-    down: `polygon(0 100%, 100% 100%, ${b} ${b}, ${a} ${b})`,
-    left: `polygon(0 0, ${a} ${a}, ${a} ${b}, 0 100%)`,
-    right: `polygon(100% 0, ${b} ${a}, ${b} ${b}, 100% 100%)`,
+    up: `polygon(0 0, 100% 0, 100% ${aUp}, 0 ${aUp})`,
+    down: `polygon(0 100%, 100% 100%, 100% ${bDown}, 0 ${bDown})`,
+    left: `polygon(0 ${aUp}, ${a} ${aUp}, ${a} ${bDown}, 0 ${bDown})`,
+    right: `polygon(100% ${aUp}, ${b} ${aUp}, ${b} ${bDown}, 100% ${bDown})`,
   };
-  // wg7/wg8: up/down are full-width bands (matches directionFromGaze); down is taller.
-  shapes.up = `polygon(0 0, 100% 0, 100% ${aUp}, 0 ${aUp})`;
-  shapes.down = `polygon(0 100%, 100% 100%, 100% ${bDown}, 0 ${bDown})`;
   for (const [dir, el] of zones) {
     el.style.clipPath = shapes[dir];
     el.style.webkitClipPath = shapes[dir];
   }
 }
 
-function placeCalibDot(dir) {
+function placeCalibDot(key) {
   calibDot.hidden = false;
-  calibDot.disabled = false;
-  calibDot.className = "calib-dot " + dir;
-  calibDot.setAttribute("aria-label", CALIB_TEXT[dir] || "맞춤 점");
+  calibDot.className = "calib-dot p-" + key;
+  calibDot.style.setProperty("--p", "0");
+  if (calibCountEl) calibCountEl.textContent = "";
+  calibDot.setAttribute("aria-label", calibText(key));
 }
 
 function hideCalibDot() {
   calibDot.hidden = true;
-  calibDot.disabled = true;
   calibDot.className = "calib-dot";
+  calibDot.style.setProperty("--p", "0");
+  if (calibCountEl) calibCountEl.textContent = "";
 }
 
 function stepLabel() {
   return calibIndex + 1 + "/" + CALIB_ORDER.length;
 }
 
-function tapProgress() {
-  return (calibIndex * TAPS_PER_POINT + tapsOnPoint) / (CALIB_ORDER.length * TAPS_PER_POINT);
+/** Overall calibration progress 0..1 (finished dots + countdown of the current one). */
+function calibProgress(frac) {
+  return (calibIndex + clamp(frac || 0, 0, 1)) / CALIB_ORDER.length;
 }
 
 // ---- wg5: edge map (stretch raw gaze so the 4 edge dots land on the 4 screen edges) ----
@@ -736,7 +821,11 @@ function predictRaw(r, eyes) {
   }
 }
 
-/** Group stored samples by target (dot) and pick the extreme dot on each side. */
+/**
+ * Group stored samples by target (dot). wg12: like wg10, the edge map uses only the 4 edge
+ * midpoint dots (left-middle, right-middle, top-center, bottom-center); corners still train the
+ * model but WebGazer is weakest there and averaging them in compressed/skewed the map.
+ */
 function edgeGroups(data) {
   const groups = new Map();
   for (const s of data) {
@@ -747,12 +836,22 @@ function edgeGroups(data) {
   }
   const list = [...groups.values()];
   if (list.length < 2) return null;
-  const by = (f, sign) => list.reduce((best, g) => (sign * f(g) > sign * f(best) ? g : best), list[0]);
+  const vw = window.innerWidth || 1;
+  const vh = window.innerHeight || 1;
+  const minX = Math.min(...list.map((g) => g.tx));
+  const maxX = Math.max(...list.map((g) => g.tx));
+  const minY = Math.min(...list.map((g) => g.ty));
+  const maxY = Math.max(...list.map((g) => g.ty));
+  // Among the dots on one side, take the one closest to that edge's midpoint.
+  const pick = (onSide, dist) => {
+    const side = list.filter(onSide);
+    return side.reduce((best, g) => (dist(g) < dist(best) ? g : best), side[0]);
+  };
   return {
-    left: by((g) => g.tx, -1),
-    right: by((g) => g.tx, 1),
-    up: by((g) => g.ty, -1),
-    down: by((g) => g.ty, 1),
+    left: pick((g) => g.tx <= minX + vw * 0.08, (g) => Math.abs(g.ty - vh / 2)),
+    right: pick((g) => g.tx >= maxX - vw * 0.08, (g) => Math.abs(g.ty - vh / 2)),
+    up: pick((g) => g.ty <= minY + vh * 0.08, (g) => Math.abs(g.tx - vw / 2)),
+    down: pick((g) => g.ty >= maxY - vh * 0.08, (g) => Math.abs(g.tx - vw / 2)),
   };
 }
 
@@ -800,11 +899,13 @@ function computeEdgeMap() {
       const vh = window.innerHeight || 1;
       const mx = (side) => median(preds[side].map((p) => p.x));
       const my = (side) => median(preds[side].map((p) => p.y));
-      const fx = fitAxis(g.left.tx, g.right.tx, mx("left"), mx("right"), vw);
+      // wg12: the dots are inset ~30px, but (as in wg10, whose dots sat on the edges) looking at an
+      // edge-midpoint dot should land the cursor on the true screen edge.
+      const fx = fitAxis(Math.min(g.left.tx, 0), Math.max(g.right.tx, vw), mx("left"), mx("right"), vw);
       // wg8: aim the down calibration median a bit past the screen bottom so looking at the
       // bottom training dot lands on (or past) the edge after clamp — counters undershoot.
       const downTarget = Math.max(g.down.ty, vh) + vh * 0.06;
-      const fy = fitAxis(g.up.ty, downTarget, my("up"), my("down"), vh);
+      const fy = fitAxis(Math.min(g.up.ty, 0), downTarget, my("up"), my("down"), vh);
       const map = { ax: fx ? fx.a : 1, bx: fx ? fx.b : 0, ay: fy ? fy.a : 1, by: fy ? fy.b : 0 };
       edgeMap = fx || fy ? map : null;
       console.info("[eyemouse] edge map", edgeMap, { left: mx("left"), right: mx("right"), up: my("up"), down: my("down") });
@@ -814,7 +915,7 @@ function computeEdgeMap() {
   });
 }
 
-// ---- Saved calibration (localforage, same store WebGazer uses) ----
+// ---- Saved calibration (wg12: our own localforage key; WebGazer's auto save/load is off) ----
 
 function regModel() {
   try {
@@ -849,7 +950,7 @@ function savedTimeText(meta) {
 function readSavedMeta() {
   try {
     const m = JSON.parse(localStorage.getItem(META_KEY) || "null");
-    return m && m.v === 2 && m.n > 0 ? m : null;
+    return m && m.v === META_VERSION && m.points === CALIB_ORDER.length && m.n > 0 ? m : null;
   } catch (err) {
     return null;
   }
@@ -892,7 +993,14 @@ async function saveCalibration() {
   await lf.setItem(SAVE_KEY, copy);
   localStorage.setItem(
     META_KEY,
-    JSON.stringify({ v: 2, savedAt: Date.now(), vw: window.innerWidth, vh: window.innerHeight, n: copy.length })
+    JSON.stringify({
+      v: META_VERSION,
+      points: CALIB_ORDER.length,
+      savedAt: Date.now(),
+      vw: window.innerWidth,
+      vh: window.innerHeight,
+      n: copy.length,
+    })
   );
   return true;
 }
@@ -900,12 +1008,15 @@ async function saveCalibration() {
 function clearSavedCalibration() {
   try {
     localStorage.removeItem(META_KEY);
+    for (const k of OLD_META_KEYS) localStorage.removeItem(k);
   } catch (err) {
     console.warn(err);
   }
   try {
-    // Wipes WebGazer's localforage store and resets the in-memory regression model.
-    if (window.webgazer && typeof webgazer.clearData === "function") webgazer.clearData();
+    // wg12: reset only the in-memory regression model. webgazer.clearData() would also
+    // localforage.clear() every key (incl. the /wg10/ build's saved model).
+    const r = regModel();
+    if (r && typeof r.init === "function") r.init();
   } catch (err) {
     console.warn(err);
   }
@@ -913,6 +1024,23 @@ function clearSavedCalibration() {
     if (window.localforage) window.localforage.removeItem(SAVE_KEY).catch(() => {});
   } catch (err) {
     console.warn(err);
+  }
+}
+
+/** wg12: load our saved samples into the (fresh) regression model. */
+async function loadSavedCalibration() {
+  const lf = window.localforage;
+  const r = regModel();
+  if (!lf || !r || typeof r.setData !== "function") return false;
+  try {
+    const data = await lf.getItem(SAVE_KEY);
+    if (!Array.isArray(data) || data.length < MIN_SAVED_SAMPLES) return false;
+    if (typeof r.init === "function") r.init();
+    r.setData(data);
+    return modelData().length >= MIN_SAVED_SAMPLES;
+  } catch (err) {
+    console.warn("[eyemouse] saved calibration load failed", err);
+    return false;
   }
 }
 
@@ -964,16 +1092,56 @@ function tickCheck(now) {
   }
 }
 
-function startPoint(index) {
+/**
+ * wg11: show dot `index` and start its countdown. No tap: frames are recorded in onGaze while the
+ * countdown runs; tickSampling() advances (or retries) when it ends. `retry` keeps the samples
+ * already recorded for this dot and just runs another countdown.
+ */
+function startPoint(index, opts) {
+  opts = opts || {};
+  window.clearTimeout(retryTimer);
+  window.clearTimeout(backstopTimer);
   calibIndex = index;
-  tapsOnPoint = 0;
-  pointFails = 0;
-  const dir = CALIB_ORDER[calibIndex];
-  placeCalibDot(dir);
-  calibDot.classList.remove("locked");
-  calibStepEl.textContent = stepLabel() + " · 한 번 탭";
-  setBaselineUi(true, tapProgress());
-  showLive(CALIB_TEXT[dir] + " · " + stepLabel(), "idle", CALIB_TEXT[dir]);
+  const key = CALIB_ORDER[calibIndex];
+  ensureRecordCounter();
+  if (!opts.retry) {
+    pointBase = recordedTotal;
+    pointAttempts = 0;
+  }
+  pointAttempts += 1;
+  placeCalibDot(key);
+  calibDot.classList.add("wait");
+  const c = dotCenter();
+  const now = performance.now();
+  const lead = opts.lead || 0;
+  const cap = perPointCap(key);
+  const token = {
+    key,
+    start: now + lead,
+    end: now + lead + COUNTDOWN_MS,
+    base: pointBase,
+    cap,
+    // Spread the samples a little (distinct eye images), but finish well before the countdown ends.
+    gap: clamp(((COUNTDOWN_MS - SETTLE_MS) / cap) * 0.6, 50, 140),
+    x: c.x,
+    y: c.y,
+    lastRec: 0,
+  };
+  sampling = token;
+  calibStepEl.textContent = stepLabel() + " · 점을 보세요";
+  setBaselineUi(true, calibProgress(0));
+  if (!opts.keepStatus) {
+    const lead1 = lead > 0 ? "준비 · " : "";
+    showLive(lead1 + calibText(key) + " · " + stepLabel(), "idle", lead > 0 ? "점을 보세요 · 준비" : "점을 보세요");
+  } else {
+    // Retry: keep the warning in the status line, reset the big countdown text.
+    focusEl.textContent = "점을 보세요";
+    focusEl.className = "focus-msg idle";
+  }
+  // Backstop in case rAF is throttled/paused: finish this dot even if tick() never runs.
+  backstopTimer = window.setTimeout(() => {
+    if (sampling === token && phase === "calib") tickSampling(performance.now(), true);
+  }, lead + COUNTDOWN_MS + 400);
 }
 
 function beginCalibration(note) {
@@ -991,16 +1159,19 @@ function beginCalibration(note) {
   resetCursor();
   readyAt = 0;
   sampling = null;
-  tapLock = false;
-  pointFails = 0;
+  window.clearTimeout(retryTimer);
+  window.clearTimeout(backstopTimer);
   clearSavedCalibration();
   setCalibInfo("");
-  startPoint(0);
-  if (note) setStatus(note + CALIB_TEXT[CALIB_ORDER[0]] + " · " + stepLabel(), "idle");
+  startPoint(0, { lead: FIRST_LEAD_MS });
+  if (note) setStatus(note + calibText(CALIB_ORDER[0]) + " · " + stepLabel(), "idle");
 }
 
 function finishCalibration(now) {
   phase = "ready";
+  sampling = null;
+  window.clearTimeout(retryTimer);
+  window.clearTimeout(backstopTimer);
   readyAt = now + READY_MS;
   document.body.classList.remove("calibrating");
   document.documentElement.classList.remove("calibrating");
@@ -1045,10 +1216,13 @@ function samplesThisPoint() {
   return sampling ? recordedTotal - sampling.base : 0;
 }
 
-function perPointCap() {
+/** wg12: stock 50-sample window split by shares: center 2 (10 samples), every other dot 1 (5). */
+function perPointCap(key) {
   const r = regModel();
   const win = (r && r.dataClicks && r.dataClicks.windowSize) || WG_CLICK_WINDOW;
-  return Math.max(1, Math.floor(win / CALIB_ORDER.length));
+  const shares = CALIB_ORDER.length - 1 + CENTER_SHARES;
+  const per = Math.max(1, Math.floor(win / shares));
+  return key === "mc" ? per * CENTER_SHARES : per;
 }
 
 function recordAt(x, y) {
@@ -1060,33 +1234,29 @@ function recordAt(x, y) {
   }
 }
 
-function onCalibTap(ev) {
-  if (phase !== "calib" || tapLock) return;
-  if (ev && ev.cancelable) ev.preventDefault();
-  if (ev) ev.stopPropagation();
-  tapLock = true;
-  ensureRecordCounter();
-  const dir = CALIB_ORDER[calibIndex];
-  const c = dotCenter();
-  const token = { start: performance.now(), base: recordedTotal, cap: perPointCap(), x: c.x, y: c.y };
-  sampling = token;
-  recordAt(c.x, c.y);
-  // Backstop in case rAF is throttled/paused: finish this dot even if tick() never runs.
-  window.setTimeout(() => {
-    if (sampling === token && phase === "calib") tickSampling(performance.now(), true);
-  }, SAMPLE_EXTEND_MS + 150);
-  // Keep recording one sample per new camera frame (see onGaze); tick() decides when to advance.
-  calibDot.classList.add("locked");
-  calibStepEl.textContent = stepLabel() + " · 그대로 보세요";
-  showLive("좋아요 · 점을 잠깐 그대로 보세요 · " + stepLabel(), "ok", CALIB_TEXT[dir]);
+/**
+ * Called from onGaze (once per processed camera frame): record this frame for the active dot if
+ * the countdown is in its sampling window, a face is present, and the per-dot cap/spacing allow.
+ */
+function sampleFrame(data, now) {
+  const sm = sampling;
+  if (!sm || phase !== "calib") return;
+  if (now < sm.start + SETTLE_MS || now > sm.end) return;
+  if (samplesThisPoint() >= sm.cap) return;
+  if (sm.lastRec && now - sm.lastRec < sm.gap) return;
+  // Face present: WebGazer passes null when it has no eye features. With an empty model it
+  // can't predict yet (null too), so then we rely on addData dropping face-less frames.
+  const faceOk = (data && Number.isFinite(data.x) && Number.isFinite(data.y)) || modelData().length === 0;
+  if (!faceOk) return;
+  const before = recordedTotal;
+  recordAt(sm.x, sm.y);
+  if (recordedTotal > before) sm.lastRec = now;
 }
 
 function advancePoint(now) {
   sampling = null;
-  tapLock = false;
-  calibDot.classList.remove("locked");
-  tapsOnPoint = TAPS_PER_POINT;
-  setBaselineUi(true, tapProgress());
+  window.clearTimeout(backstopTimer);
+  setBaselineUi(true, calibProgress(1));
   if (calibIndex + 1 < CALIB_ORDER.length) {
     startPoint(calibIndex + 1);
     return;
@@ -1099,34 +1269,55 @@ function advancePoint(now) {
   finishCalibration(now);
 }
 
-/** Called every frame while a dot is sampling. */
+/** Retry the current dot: keep its samples, warn, short pause, then a fresh countdown. */
+function retryPoint(got) {
+  const key = CALIB_ORDER[calibIndex];
+  const idx = calibIndex;
+  sampling = null;
+  window.clearTimeout(backstopTimer);
+  calibDot.classList.remove("wait", "sampling");
+  calibDot.classList.add("retry");
+  calibDot.style.setProperty("--p", "0");
+  if (calibCountEl) calibCountEl.textContent = "!";
+  calibStepEl.textContent = stepLabel() + " · 다시";
+  const why =
+    got > 0 ? "시선이 덜 잡혔어요" : pointAttempts >= 3 ? "얼굴이 계속 안 잡혀요 · 밝은 곳에서 얼굴을 카메라 정면에" : "얼굴이 안 잡혔어요";
+  showLive(why + " · 같은 점을 한 번 더 봐 주세요 · " + stepLabel(), "warn", "다시 · " + calibText(key));
+  retryTimer = window.setTimeout(() => {
+    if (phase !== "calib" || calibIndex !== idx) return;
+    startPoint(idx, { retry: true, keepStatus: true });
+  }, RETRY_PAUSE_MS);
+}
+
+/** Called every frame while a dot is active: countdown UI, then advance / retry at the end. */
 function tickSampling(now, force) {
-  if (!sampling) return;
-  const elapsed = force ? Infinity : now - sampling.start;
+  const sm = sampling;
+  if (!sm) return;
   const got = samplesThisPoint();
-  if (got >= sampling.cap || (elapsed >= SAMPLE_WINDOW_MS && got >= SAMPLE_GOOD)) {
+  if (!force && now < sm.end) {
+    if (now < sm.start) return; // lead-in ("준비") before the first dot's countdown
+    const elapsed = now - sm.start;
+    const frac = clamp(elapsed / COUNTDOWN_MS, 0, 1);
+    const remain = Math.max(0, sm.end - now);
+    calibDot.classList.remove("wait", "retry");
+    calibDot.classList.add("sampling");
+    calibDot.style.setProperty("--p", frac.toFixed(3));
+    if (calibCountEl) calibCountEl.textContent = String(Math.max(1, Math.ceil(remain / 1000)));
+    setBaselineUi(true, calibProgress(frac));
+    const secs = (Math.ceil(remain / 100) / 10).toFixed(1);
+    focusEl.textContent = "점을 보세요 · " + secs;
+    return;
+  }
+  const need = Math.min(sm.cap, Math.max(1, Math.ceil(sm.cap * MIN_POINT_FRAC)));
+  if (got >= need) {
     advancePoint(now);
     return;
   }
-  if (elapsed < SAMPLE_EXTEND_MS) return;
-  // Window (incl. extension) over.
-  if (got > 0) {
+  if (pointAttempts >= SKIP_AFTER_ATTEMPTS && got >= 2) {
     advancePoint(now); // fewer samples is fine (e.g. eyelids lower when looking down)
     return;
   }
-  const dir = CALIB_ORDER[calibIndex];
-  pointFails += 1;
-  if (pointFails > MAX_POINT_FAILS) {
-    // Never leave the user stuck: skip this dot (the others still train the model).
-    showLive("얼굴이 안 잡혀 이 점은 건너뜁니다", "warn", CALIB_TEXT[dir]);
-    advancePoint(now);
-    return;
-  }
-  sampling = null;
-  tapLock = false;
-  calibDot.classList.remove("locked");
-  calibStepEl.textContent = stepLabel() + " · 한 번 탭";
-  showLive("얼굴이 안 잡혔어요 · 점을 보고 다시 탭 · " + stepLabel(), "warn", CALIB_TEXT[dir]);
+  retryPoint(got);
 }
 
 /** Dwell threshold for the current direction (wg8: down is a bit shorter; deep-bottom faster). */
@@ -1145,7 +1336,7 @@ function updateDwell(now, dir, gazeOk) {
   lastTick = now;
   const dt = gap > 250 ? 0 : gap;
 
-  // wg10: after a successful up/down count, block new dwelling until cooldown ends.
+  // wg10/wg11: after a successful count (any of the 4 dirs), block new dwelling until cooldown ends.
   // Keep commit hold feedback; clear dwell + ambient charge so nothing builds.
   if (now < countCooldownUntil) {
     dwellDir = null;
@@ -1153,7 +1344,7 @@ function updateDwell(now, dir, gazeOk) {
     setGauge(null, 0);
     if (holdDir && now < holdUntil) {
       const meta = DIR_META[holdDir];
-      const act = { up: "다음", down: "이전" }[holdDir] || "";
+      const act = DIR_ACT[holdDir] || "";
       const text = meta.name + " " + counts[holdDir] + (act ? " · " + act : "");
       showLive(text, "ok", text);
     } else if (!gazeOk) {
@@ -1161,10 +1352,10 @@ function updateDwell(now, dir, gazeOk) {
         showLive("시선 없음 · 얼굴을 카메라에", "warn", "시선 없음");
       }
     } else if (!dir) {
-      showLive("정면 · 위·아래 가장자리를 보세요", "idle", "정면");
+      showLive("정면 · " + EDGE_WORDS + " 가장자리를 보세요", "idle", "정면");
     } else {
       const meta = DIR_META[dir];
-      const hint = { up: "위 · 다음", down: "아래 · 이전" }[dir] || meta.name;
+      const hint = DIR_HINT[dir] || meta.name;
       showLive(meta.watch, "ok", hint);
     }
     return;
@@ -1180,7 +1371,7 @@ function updateDwell(now, dir, gazeOk) {
 
   if (!dir) {
     clearCharge();
-    showLive("정면 · 위·아래 가장자리를 보세요", "idle", "정면");
+    showLive("정면 · " + EDGE_WORDS + " 가장자리를 보세요", "idle", "정면");
     return;
   }
 
@@ -1206,7 +1397,7 @@ function updateDwell(now, dir, gazeOk) {
     flashAmbient(dir); // wg9: brighter commit flash along this edge
     setGauge(null, 0); // wg10: clear dwell/ambient charge for cooldown
     const meta = DIR_META[dir];
-    const act = { up: "다음", down: "이전" }[dir] || "";
+    const act = DIR_ACT[dir] || "";
     const text = meta.name + " " + counts[dir] + (act ? " · " + act : "");
     showLive(text, "ok", text);
     return;
@@ -1215,11 +1406,11 @@ function updateDwell(now, dir, gazeOk) {
   setGauge(dir, dwellAcc / need);
   const meta = DIR_META[dir];
   if (holdDir === dir && now < holdUntil) {
-    const act = { up: "다음", down: "이전" }[dir] || "";
+    const act = DIR_ACT[dir] || "";
     const text = meta.name + " " + counts[dir] + (act ? " · " + act : "");
     showLive(text, "ok", text);
   } else {
-    const hint = { up: "위 · 다음", down: "아래 · 이전" }[dir] || meta.name;
+    const hint = DIR_HINT[dir] || meta.name;
     showLive(meta.watch, "ok", hint);
   }
 }
@@ -1228,9 +1419,7 @@ function onGaze(data) {
   if (!running) return;
   const now = performance.now();
   // WebGazer calls this once per processed camera frame, so each call has fresh eye features.
-  if (sampling && phase === "calib" && now - sampling.start <= SAMPLE_EXTEND_MS && samplesThisPoint() < sampling.cap) {
-    recordAt(sampling.x, sampling.y);
-  }
+  if (sampling && phase === "calib") sampleFrame(data, now);
   if (data && Number.isFinite(data.x) && Number.isFinite(data.y)) {
     latestGaze = { x: data.x, y: data.y };
     lastGazeAt = now;
@@ -1255,7 +1444,11 @@ function tick(now) {
       countCooldownUntil = 0;
       lastTick = 0;
       showFeed();
-      showLive("피드 데모 · 위·아래 가장자리를 보세요", "idle", "위=다음 · 아래=이전");
+      showLive(
+        "피드 데모 · " + EDGE_WORDS + " 가장자리를 보세요",
+        "idle",
+        UP_DOWN_ONLY ? "위=다음 · 아래=이전" : "위=다음 · 아래=이전 · 왼쪽=뒤로 · 오른쪽=댓글"
+      );
     }
     return;
   }
@@ -1267,6 +1460,7 @@ function tick(now) {
     } catch (err) {
       console.error(err);
       advancePoint(now);
+      return;
     }
     return;
   }
@@ -1292,8 +1486,8 @@ function setWebGazerParams() {
   p.showFaceOverlay = false;
   p.showFaceFeedbackBox = false;
   p.showGazeDot = false;
-  // Load the saved calibration on begin() (WebGazer reads localforage "webgazerGlobalData").
-  p.saveDataAcrossSessions = true;
+  // wg12: no WebGazer auto save/load ("webgazerGlobalData"); we load our own key after begin().
+  p.saveDataAcrossSessions = false;
   // Plain "user" (not exact) so Safari can still pick a camera if the hint is unavailable.
   p.camConstraints = {
     video: {
@@ -1421,7 +1615,7 @@ async function startWebGazer() {
   }
   setWebGazerParams();
   try {
-    webgazer.saveDataAcrossSessions(true);
+    webgazer.saveDataAcrossSessions(false);
   } catch (err) {
     console.warn(err);
   }
@@ -1452,7 +1646,7 @@ async function startWebGazer() {
     console.warn(err);
   }
 
-  // Prefer explicit calib taps only — avoid stray page clicks training the model.
+  // Only our countdown samples train the model — avoid stray page clicks/moves training it.
   try {
     if (typeof webgazer.removeMouseEventListeners === "function") {
       webgazer.removeMouseEventListeners();
@@ -1506,8 +1700,10 @@ async function startCamera() {
   started = true;
   recalibBtn.disabled = false;
   const meta = readSavedMeta();
-  if (meta && layoutMatches(meta)) {
+  if (meta && layoutMatches(meta) && (await loadSavedCalibration())) {
     beginSavedCheck(performance.now());
+  } else if (meta && layoutMatches(meta)) {
+    beginCalibration("저장된 맞춤을 불러오지 못해 다시 맞춥니다 · ");
   } else if (meta) {
     beginCalibration("화면 크기·방향이 저장 때와 달라 다시 맞춥니다 · ");
   } else {
@@ -1547,38 +1743,7 @@ recalibBtn.addEventListener("click", () => {
   beginCalibration("저장된 맞춤을 지웠어요 · ");
 });
 
-// wg4: register the tap on press (pointerdown / touchstart), not on release. A release can be
-// lost on iOS Safari (pointercancel when the finger drifts into a scroll, or the bottom toolbar
-// grabbing a touch near the screen edge). touchstart is preventDefault'ed (non-passive) so the
-// synthetic click never follows; click stays as fallback for keyboard / non-touch browsers.
-let lastPressAt = 0;
-let sawPress = false;
-function onDotPress(ev) {
-  if (ev.type === "pointerdown" && ev.button > 0) return;
-  if (ev.type !== "click") sawPress = true;
-  const now = performance.now();
-  if (now - lastPressAt < 450) {
-    if (ev.cancelable) ev.preventDefault();
-    return;
-  }
-  if (phase !== "calib" || tapLock) {
-    if (ev.cancelable) ev.preventDefault();
-    return;
-  }
-  lastPressAt = now;
-  onCalibTap(ev);
-}
-calibDot.addEventListener("pointerdown", onDotPress);
-calibDot.addEventListener("touchstart", onDotPress, { passive: false });
-calibDot.addEventListener("click", (ev) => {
-  // After a press event we already handled it; only keyboard clicks (detail 0) or browsers
-  // without pointer/touch events reach onDotPress through here.
-  if (sawPress && ev.detail !== 0) {
-    ev.preventDefault();
-    return;
-  }
-  onDotPress(ev);
-});
+// wg11: no tap to calibrate — the dot is display-only (pointer-events: none in CSS).
 // Keep the dot outside .stage's stacking context so nothing on the page can paint over it.
 document.body.appendChild(calibDot);
 
@@ -1600,6 +1765,7 @@ window.addEventListener("pagehide", () => {
   stopAll();
 });
 
+console.info("[eyemouse] build " + BUILD + " · dirs=" + ACTIVE_DIRS.join(","));
 layoutZones();
 buildFeed();
 resizeAmbient(); // wg7: no idle ambient loop — light only flows on a commit
