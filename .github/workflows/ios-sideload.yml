@@ -11,7 +11,9 @@ on:
         default: "com.zio.eyemouse"
         type: string
   push:
-    branches: [main]
+    branches:
+      - main
+      - "cursor/**"
     paths:
       - "www/**"
       - "ios/**"
