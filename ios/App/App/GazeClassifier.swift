@@ -174,8 +174,8 @@ final class GazeClassifier {
     /// Run on a serial queue. Pixel buffer must still be valid (same callback / retained).
     func ingest(pixelBuffer: CVPixelBuffer, orientation: CGImagePropertyOrientation) {
         let request = VNDetectFaceLandmarksRequest()
-        request.usesCPUOnly = true
         request.revision = VNDetectFaceLandmarksRequestRevision3
+        // usesCPUOnly is deprecated; skip it so Xcode 16 / iOS 18.5 does not fail the build.
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:])
         do {
             try handler.perform([request])

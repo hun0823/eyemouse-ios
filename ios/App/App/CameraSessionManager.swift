@@ -242,9 +242,7 @@ final class CameraSessionManager: NSObject, AVCaptureVideoDataOutputSampleBuffer
             return "카메라 중단 (코드 \(reason.rawValue))"
         }
     }
-}
 
-extension CameraSessionManager: AVCaptureVideoDataOutputSampleBufferDelegate {
     func captureOutput(
         _ output: AVCaptureOutput,
         didOutput sampleBuffer: CMSampleBuffer,
