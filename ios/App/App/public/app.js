@@ -1751,6 +1751,42 @@ startBtn.addEventListener("click", () => {
   startCamera();
 });
 
+(function bindPipTest() {
+  const btn = document.querySelector("#pip-test");
+  if (!btn) return;
+  const cap = window.Capacitor;
+  const wk = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.eyemousePipTest;
+  const native = !!(wk || (cap && typeof cap.isNativePlatform === "function" && cap.isNativePlatform()));
+  if (!native) {
+    btn.hidden = true;
+    const note = document.querySelector(".pip-test-note");
+    if (note) note.hidden = true;
+    return;
+  }
+  btn.addEventListener("click", async () => {
+    try {
+      if (wk && typeof wk.postMessage === "function") {
+        wk.postMessage({ open: true });
+        return;
+      }
+      const plugins = (cap && cap.Plugins) || {};
+      if (plugins.PipTest && typeof plugins.PipTest.open === "function") {
+        await plugins.PipTest.open();
+        return;
+      }
+      if (cap && typeof cap.registerPlugin === "function") {
+        const PipTest = cap.registerPlugin("PipTest");
+        await PipTest.open();
+        return;
+      }
+      btn.textContent = "오른쪽 위 PiP 시험을 누르세요";
+    } catch (err) {
+      console.error(err);
+      btn.textContent = "열기 실패";
+    }
+  });
+})();
+
 // Surface async WebGazer failures that escape begin() (e.g. inside the frame loop).
 window.addEventListener("unhandledrejection", (ev) => {
   console.error("unhandledrejection", ev.reason);

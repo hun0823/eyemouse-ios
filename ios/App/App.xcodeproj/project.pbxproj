@@ -17,6 +17,14 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		A10E00012C8F00010000E001 /* EyeMouseViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10E00002C8F00010000E001 /* EyeMouseViewController.swift */; };
 		A10E00032C8F00010000E002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A10E00022C8F00010000E002 /* PrivacyInfo.xcprivacy */; };
+		A10E02012C8F01010000E201 /* DiagnosticLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10E01012C8F01010000E101 /* DiagnosticLog.swift */; };
+		A10E02022C8F01010000E202 /* SwipeOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10E01022C8F01010000E102 /* SwipeOutput.swift */; };
+		A10E02032C8F01010000E203 /* GazeClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10E01032C8F01010000E103 /* GazeClassifier.swift */; };
+		A10E02042C8F01010000E204 /* CameraSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10E01042C8F01010000E104 /* CameraSessionManager.swift */; };
+		A10E02052C8F01010000E205 /* PipKeepAlive.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10E01052C8F01010000E105 /* PipKeepAlive.swift */; };
+		A10E02062C8F01010000E206 /* PipDashboardViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10E01062C8F01010000E106 /* PipDashboardViewController.swift */; };
+		A10E02072C8F01010000E207 /* PipTestViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10E01072C8F01010000E107 /* PipTestViewController.swift */; };
+		A10E02082C8F01010000E208 /* PipTestPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10E01082C8F01010000E108 /* PipTestPlugin.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +39,14 @@
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		A10E00002C8F00010000E001 /* EyeMouseViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EyeMouseViewController.swift; sourceTree = "<group>"; };
 		A10E00022C8F00010000E002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A10E01012C8F01010000E101 /* DiagnosticLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLog.swift; sourceTree = "<group>"; };
+		A10E01022C8F01010000E102 /* SwipeOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwipeOutput.swift; sourceTree = "<group>"; };
+		A10E01032C8F01010000E103 /* GazeClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GazeClassifier.swift; sourceTree = "<group>"; };
+		A10E01042C8F01010000E104 /* CameraSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraSessionManager.swift; sourceTree = "<group>"; };
+		A10E01052C8F01010000E105 /* PipKeepAlive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PipKeepAlive.swift; sourceTree = "<group>"; };
+		A10E01062C8F01010000E106 /* PipDashboardViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PipDashboardViewController.swift; sourceTree = "<group>"; };
+		A10E01072C8F01010000E107 /* PipTestViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PipTestViewController.swift; sourceTree = "<group>"; };
+		A10E01082C8F01010000E108 /* PipTestPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PipTestPlugin.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -69,6 +85,14 @@
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				A10E00002C8F00010000E001 /* EyeMouseViewController.swift */,
+				A10E01012C8F01010000E101 /* DiagnosticLog.swift */,
+				A10E01022C8F01010000E102 /* SwipeOutput.swift */,
+				A10E01032C8F01010000E103 /* GazeClassifier.swift */,
+				A10E01042C8F01010000E104 /* CameraSessionManager.swift */,
+				A10E01052C8F01010000E105 /* PipKeepAlive.swift */,
+				A10E01062C8F01010000E106 /* PipDashboardViewController.swift */,
+				A10E01072C8F01010000E107 /* PipTestViewController.swift */,
+				A10E01082C8F01010000E108 /* PipTestPlugin.swift */,
 				A10E00022C8F00010000E002 /* PrivacyInfo.xcprivacy */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -164,6 +188,14 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				A10E00012C8F00010000E001 /* EyeMouseViewController.swift in Sources */,
+				A10E02012C8F01010000E201 /* DiagnosticLog.swift in Sources */,
+				A10E02022C8F01010000E202 /* SwipeOutput.swift in Sources */,
+				A10E02032C8F01010000E203 /* GazeClassifier.swift in Sources */,
+				A10E02042C8F01010000E204 /* CameraSessionManager.swift in Sources */,
+				A10E02052C8F01010000E205 /* PipKeepAlive.swift in Sources */,
+				A10E02062C8F01010000E206 /* PipDashboardViewController.swift in Sources */,
+				A10E02072C8F01010000E207 /* PipTestViewController.swift in Sources */,
+				A10E02082C8F01010000E208 /* PipTestPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -304,7 +336,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				INFOPLIST_FILE = App/Info.plist;
 				DEVELOPMENT_TEAM = "";
 				INFOPLIST_KEY_CFBundleDisplayName = "아이마우스";
@@ -315,7 +347,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.zio.eyemouse;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -330,7 +362,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "아이마우스";
@@ -341,7 +373,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zio.eyemouse;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
